@@ -1,0 +1,1605 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Consumo Sesiones PT - ONNE</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+        darkMode: 'class',
+        theme: {
+            extend: {
+                fontFamily: {
+                    sans: ['Inter', 'system-ui', 'sans-serif'],
+                    mono: ['JetBrains Mono', 'monospace'],
+                },
+                colors: {
+                    accent: '#22c55e',
+                }
+            }
+        }
+    }
+    </script>
+    <style>
+        /* Base */
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+        /* Calendar icon fix for dark theme */
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+            cursor: pointer;
+            opacity: 0.5;
+            transition: opacity 200ms;
+        }
+        input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+
+        /* Chart containers */
+        .chart-wrapper { position: relative; height: 320px; }
+        .chart-wrapper.tall { height: 420px; }
+
+        /* Heatmap */
+        .heatmap-container { overflow-x: auto; }
+        .heatmap-table { border-collapse: collapse; width: 100%; }
+        .heatmap-table td, .heatmap-table th {
+            padding: 6px 8px; text-align: center; font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .heatmap-table th { color: #737373; font-weight: 500; }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0a0a; }
+        ::-webkit-scrollbar-thumb { background: #262626; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #404040; }
+
+        /* Table sorting */
+        th[onclick] { cursor: pointer; user-select: none; }
+        th[onclick]:hover { color: #22c55e !important; }
+        th .fa-sort { opacity: 0.3; transition: opacity 200ms; }
+        th:hover .fa-sort { opacity: 1; }
+
+        /* Slider */
+        input[type="range"] { accent-color: #22c55e; }
+    </style>
+</head>
+<body class="bg-[#0a0a0a] text-[#fafafa] min-h-screen p-5">
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-[#0a0a0a]/95 flex flex-col items-center justify-center z-50">
+        <div class="w-10 h-10 border-2 border-[#262626] border-t-[#22c55e] rounded-full animate-spin"></div>
+        <p id="loadingText" class="mt-5 text-sm text-[#525252]">Cargando datos desde Google Sheets...</p>
+    </div>
+
+    <div class="max-w-[1800px] mx-auto">
+        <!-- Header -->
+        <header class="bg-[#141414] border border-[#1f1f1f] rounded-lg p-6 mb-6 shadow-lg">
+            <div class="flex justify-between items-center flex-wrap gap-4 mb-5">
+                <div class="flex items-center gap-5">
+                    <img src="https://www.onne.cl/wp-content/uploads/2025/07/logo_onne.png" alt="ONNE" class="h-12">
+                    <div>
+                        <h1 class="text-2xl font-semibold tracking-wide uppercase">Dashboard Consumo Sesiones PT</h1>
+                        <p class="text-[#525252] text-sm mt-1 tracking-wide" id="subtitlePeriodo">Período: cargando...</p>
+                    </div>
+                </div>
+                <div id="activeFilters" class="flex flex-wrap gap-2"></div>
+            </div>
+            <div class="flex flex-wrap gap-4 items-end">
+                <div class="flex flex-col gap-1.5">
+                    <label class="text-[10px] font-medium uppercase tracking-widest text-[#525252]">Fecha Desde</label>
+                    <input type="date" id="fechaDesde" class="bg-[#0a0a0a] border border-[#262626] rounded-lg px-3.5 py-2.5 text-sm text-[#fafafa] min-w-[160px] transition-all duration-200 focus:outline-none focus:border-[#22c55e]/50 focus:ring-1 focus:ring-[#22c55e]/20 font-mono">
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label class="text-[10px] font-medium uppercase tracking-widest text-[#525252]">Fecha Hasta</label>
+                    <input type="date" id="fechaHasta" class="bg-[#0a0a0a] border border-[#262626] rounded-lg px-3.5 py-2.5 text-sm text-[#fafafa] min-w-[160px] transition-all duration-200 focus:outline-none focus:border-[#22c55e]/50 focus:ring-1 focus:ring-[#22c55e]/20 font-mono">
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label class="text-[10px] font-medium uppercase tracking-widest text-[#525252]">Profesor</label>
+                    <select id="filterProfesor" class="bg-[#0a0a0a] border border-[#262626] rounded-lg px-3.5 py-2.5 text-sm text-[#fafafa] min-w-[160px] transition-all duration-200 focus:outline-none focus:border-[#22c55e]/50">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label class="text-[10px] font-medium uppercase tracking-widest text-[#525252]">Alumno</label>
+                    <select id="filterAlumno" class="bg-[#0a0a0a] border border-[#262626] rounded-lg px-3.5 py-2.5 text-sm text-[#fafafa] min-w-[160px] transition-all duration-200 focus:outline-none focus:border-[#22c55e]/50">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label class="text-[10px] font-medium uppercase tracking-widest text-[#525252]">Franja Horaria</label>
+                    <select id="filterFranja" class="bg-[#0a0a0a] border border-[#262626] rounded-lg px-3.5 py-2.5 text-sm text-[#fafafa] min-w-[160px] transition-all duration-200 focus:outline-none focus:border-[#22c55e]/50">
+                        <option value="">Todas</option>
+                        <option value="Antes de 10:00">Antes de 10:00</option>
+                        <option value="10:00 a 13:00">10:00 a 13:00</option>
+                        <option value="13:00 a 15:00">13:00 a 15:00</option>
+                        <option value="15:00 a 18:00">15:00 a 18:00</option>
+                        <option value="Después de 18:00">Después de 18:00</option>
+                    </select>
+                </div>
+                <button class="px-4 py-2.5 bg-[#0a0a0a] border border-[#262626] rounded-lg text-sm text-[#737373] transition-all duration-200 hover:border-red-500/30 hover:text-red-400" onclick="limpiarFiltros()">
+                    <i class="fas fa-times mr-1.5"></i> Limpiar
+                </button>
+            </div>
+        </header>
+
+        <!-- KPIs -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6" id="kpiGrid"></div>
+
+        <!-- Sección 1: Análisis de Profesores -->
+        <section class="bg-[#141414] border border-[#1f1f1f] rounded-lg p-6 mb-6 shadow-lg">
+            <h2 class="text-lg font-semibold mb-5 flex items-center gap-3 text-[#fafafa]">
+                <i class="fas fa-user-tie text-[#22c55e]"></i> Análisis de Profesores
+            </h2>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5">
+                    <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Ranking de Profesores por Sesiones</h3>
+                    <div class="chart-wrapper tall"><canvas id="chartProfesoresRanking"></canvas></div>
+                </div>
+                <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5">
+                    <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Evolución Mensual por Profesor</h3>
+                    <div class="chart-wrapper tall"><canvas id="chartProfesoresEvolucion"></canvas></div>
+                </div>
+            </div>
+            <div class="mt-6 overflow-x-auto">
+                <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Detalle por Profesor</h3>
+                <table id="tablaProfesores" class="w-full">
+                    <thead>
+                        <tr class="border-b border-[#262626]">
+                            <th onclick="sortTable('tablaProfesores', 0)" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252] transition-colors duration-200">Profesor <i class="fas fa-sort ml-1"></i></th>
+                            <th onclick="sortTable('tablaProfesores', 1)" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252] transition-colors duration-200">Total <i class="fas fa-sort ml-1"></i></th>
+                            <th onclick="sortTable('tablaProfesores', 2)" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252] transition-colors duration-200">Prom. Sem. <i class="fas fa-sort ml-1"></i></th>
+                            <th onclick="sortTable('tablaProfesores', 3)" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252] transition-colors duration-200">Horario Top <i class="fas fa-sort ml-1"></i></th>
+                            <th onclick="sortTable('tablaProfesores', 4)" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252] transition-colors duration-200">Alumnos <i class="fas fa-sort ml-1"></i></th>
+                            <th onclick="sortTable('tablaProfesores', 5)" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252] transition-colors duration-200">Tendencia <i class="fas fa-sort ml-1"></i></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Sección 2: Análisis Temporal -->
+        <section class="bg-[#141414] border border-[#1f1f1f] rounded-lg p-6 mb-6 shadow-lg">
+            <h2 class="text-lg font-semibold mb-5 flex items-center gap-3 text-[#fafafa]">
+                <i class="fas fa-clock text-[#22c55e]"></i> Análisis Temporal
+            </h2>
+            <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5 mb-6">
+                <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Heatmap: Día vs Hora <span class="text-[#525252] text-xs">(Solo QR APP)</span></h3>
+                <div class="heatmap-container" id="heatmapContainer"></div>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5">
+                    <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Sesiones por Mes</h3>
+                    <div class="chart-wrapper"><canvas id="chartSesionesMes"></canvas></div>
+                </div>
+                <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5">
+                    <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Tendencia Semanal</h3>
+                    <div class="chart-wrapper"><canvas id="chartTendenciaSemanal"></canvas></div>
+                </div>
+                <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5">
+                    <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Comparativa por Día de la Semana</h3>
+                    <div class="chart-wrapper"><canvas id="chartDiaSemana"></canvas></div>
+                </div>
+                <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5">
+                    <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Distribución por Franja Horaria <span class="text-[#525252] text-xs">(Solo QR APP)</span></h3>
+                    <div class="chart-wrapper"><canvas id="chartFranjas"></canvas></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Sección 3: Análisis de Alumnos -->
+        <section class="bg-[#141414] border border-[#1f1f1f] rounded-lg p-6 mb-6 shadow-lg">
+            <h2 class="text-lg font-semibold mb-5 flex items-center gap-3 text-[#fafafa]">
+                <i class="fas fa-users text-[#22c55e]"></i> Análisis de Alumnos
+            </h2>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5">
+                    <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Top 20 Alumnos con Más Sesiones</h3>
+                    <div class="chart-wrapper tall"><canvas id="chartTopAlumnos"></canvas></div>
+                </div>
+                <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5">
+                    <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Distribución: Sesiones por Alumno por Mes</h3>
+                    <div class="chart-wrapper tall"><canvas id="chartHistograma"></canvas></div>
+                </div>
+            </div>
+
+            <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5 mt-6">
+                <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Alerta: Alumnos con Alto Consumo Semanal</h3>
+                <div class="flex items-center gap-3 mb-4 text-sm text-[#525252]">
+                    <span>Umbral mínimo:</span>
+                    <input type="range" id="sliderConsumo" min="0" max="5" value="2" step="0.5" class="w-32">
+                    <span class="font-mono text-[#22c55e] font-semibold" id="sliderValue">2</span>
+                    <span>sesiones/semana</span>
+                </div>
+                <div class="max-h-[400px] overflow-y-auto">
+                    <ul id="listaAltoConsumo" class="columns-2 gap-x-8"></ul>
+                </div>
+            </div>
+
+            <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5 mt-6">
+                <h3 class="text-sm font-medium text-[#a3a3a3] mb-1">Seguimiento Semanal de Alumnos</h3>
+                <p class="text-xs text-[#525252] mb-4">Alumnos que no cumplen el mínimo de 2 sesiones semanales</p>
+                <div class="max-h-[350px] overflow-y-auto">
+                    <table id="tablaIncumplimiento" class="w-full">
+                        <thead><tr class="border-b border-[#262626]">
+                            <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252]">Alumno</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252]">Semana</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252]">Sesiones</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252]">Estado</th>
+                        </tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5 mt-6 overflow-x-auto">
+                <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Alumnos Inactivos <span class="text-[#525252] text-xs">(Última sesión hace más de 30 días)</span></h3>
+                <table id="tablaInactivos" class="w-full">
+                    <thead><tr class="border-b border-[#262626]">
+                        <th onclick="sortTable('tablaInactivos', 0)" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252] transition-colors duration-200">Alumno <i class="fas fa-sort ml-1"></i></th>
+                        <th onclick="sortTable('tablaInactivos', 1)" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252] transition-colors duration-200">Última Sesión <i class="fas fa-sort ml-1"></i></th>
+                        <th onclick="sortTable('tablaInactivos', 2)" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252] transition-colors duration-200">Días Inactivo <i class="fas fa-sort ml-1"></i></th>
+                        <th onclick="sortTable('tablaInactivos', 3)" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252] transition-colors duration-200">Total Sesiones <i class="fas fa-sort ml-1"></i></th>
+                        <th onclick="sortTable('tablaInactivos', 4)" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252] transition-colors duration-200">Último Profesor <i class="fas fa-sort ml-1"></i></th>
+                    </tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Sección 4: Sesiones Perdidas -->
+        <section class="bg-[#141414] border border-[#1f1f1f] rounded-lg p-6 mb-6 shadow-lg">
+            <h2 class="text-lg font-semibold mb-5 flex items-center gap-3 text-[#fafafa]">
+                <i class="fas fa-exclamation-triangle text-red-400"></i> Sesiones Perdidas por Incumplimiento
+            </h2>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5">
+                    <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Alumnos con Sesiones Perdidas</h3>
+                    <div class="chart-wrapper"><canvas id="chartSesionesPerdidas"></canvas></div>
+                </div>
+                <div class="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-5">
+                    <h3 class="text-sm font-medium text-[#a3a3a3] mb-4">Detalle de Sesiones Perdidas</h3>
+                    <div class="max-h-[300px] overflow-y-auto">
+                        <table id="tablaPerdidas" class="w-full">
+                            <thead><tr class="border-b border-[#262626]">
+                                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252]">Alumno</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252]">Sesiones Perdidas</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#525252]">Último Mes</th>
+                            </tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Sección 5: Inteligencia y Alertas -->
+        <section class="bg-[#141414] border border-[#1f1f1f] rounded-lg p-6 mb-6 shadow-lg">
+            <h2 class="text-lg font-semibold mb-5 flex items-center gap-3 text-[#fafafa]">
+                <i class="fas fa-brain text-[#22c55e]"></i> Inteligencia y Alertas
+            </h2>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                    <div class="bg-[#0a0a0a] border border-red-500/20 rounded-lg p-5">
+                        <div class="text-sm font-medium text-red-400 mb-3 flex items-center gap-2"><i class="fas fa-arrow-down"></i> Profesores con Caída de Actividad (&gt;20%)</div>
+                        <ul id="alertaProfesoresBaja" class="space-y-1"></ul>
+                    </div>
+                    <div class="bg-[#0a0a0a] border border-blue-500/20 rounded-lg p-5 mt-4">
+                        <div class="text-sm font-medium text-blue-400 mb-3 flex items-center gap-2"><i class="fas fa-lightbulb"></i> Horarios con Menor Ocupación (Oportunidades)</div>
+                        <ul id="alertaHorariosVacios" class="space-y-1"></ul>
+                    </div>
+                </div>
+                <div class="bg-[#0a0a0a] border border-amber-500/20 rounded-lg p-5">
+                    <div class="text-sm font-medium text-amber-400 mb-3 flex items-center gap-2"><i class="fas fa-user-slash"></i> Alumnos que Dejaron de Asistir (&gt;30 días)</div>
+                    <ul id="alertaAlumnosInactivos" class="space-y-1"></ul>
+                </div>
+            </div>
+
+            <div class="bg-[#0a0a0a] border border-[#22c55e]/20 rounded-lg p-6 mt-6">
+                <h3 class="text-sm font-semibold text-[#22c55e] mb-3 flex items-center gap-2"><i class="fas fa-file-alt"></i> Resumen Ejecutivo</h3>
+                <p id="resumenEjecutivo" class="text-sm text-[#a3a3a3] leading-relaxed"></p>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // ====================================================================
+
+        // ====================================================================
+        // DATOS - Carga dinamica desde Google Sheets
+        // ====================================================================
+        const SHEET_ID = '19Q9RE1w9DtOTgeI8fawk8wmNXI6e7WxzCe1jNGq-odU';
+        const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`;
+
+        let DATA = [];
+        let DATA_PERDIDAS = [];
+        let FECHA_MIN = '';
+        let FECHA_MAX = '';
+        let FECHA_HASTA_DEFAULT = '';
+        let HOY = new Date();
+
+        function parseCSV(text) {
+            const rows = [];
+            let current = '';
+            let inQuotes = false;
+            let row = [];
+            for (let i = 0; i < text.length; i++) {
+                const ch = text[i];
+                if (inQuotes) {
+                    if (ch === '"') {
+                        if (i + 1 < text.length && text[i + 1] === '"') {
+                            current += '"';
+                            i++;
+                        } else {
+                            inQuotes = false;
+                        }
+                    } else {
+                        current += ch;
+                    }
+                } else {
+                    if (ch === '"') {
+                        inQuotes = true;
+                    } else if (ch === ',') {
+                        row.push(current.trim());
+                        current = '';
+                    } else if (ch === '\n' || (ch === '\r' && i + 1 < text.length && text[i + 1] === '\n')) {
+                        if (ch === '\r') i++;
+                        row.push(current.trim());
+                        if (row.length > 1) rows.push(row);
+                        row = [];
+                        current = '';
+                    } else {
+                        current += ch;
+                    }
+                }
+            }
+            if (current || row.length > 0) {
+                row.push(current.trim());
+                if (row.length > 1) rows.push(row);
+            }
+            return rows;
+        }
+
+        function computeDerivedFields(fecha, hora, comentario) {
+            const d = new Date(fecha + 'T12:00:00');
+            const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+            const diaSemana = diasSemana[d.getDay()];
+            const diaSemanaNum = d.getDay() === 0 ? 6 : d.getDay() - 1;
+            const janFirst = new Date(d.getFullYear(), 0, 1);
+            const dayOfYear = Math.ceil((d - janFirst) / 86400000) + 1;
+            const semana = Math.ceil(dayOfYear / 7);
+            const anio = d.getFullYear();
+            const mes = d.getMonth() + 1;
+            const anioMes = `${anio}-${String(mes).padStart(2, '0')}`;
+            const weekNum = String(semana - 1).padStart(2, '0');
+            const anioSemana = `${anio}-W${weekNum}`;
+            let horaNum = null;
+            let franja = 'Sin datos';
+            const horaConfiable = comentario && comentario.toUpperCase().includes('QR APP');
+            if (hora) {
+                const parts = hora.split(':');
+                horaNum = parseInt(parts[0]);
+                if (!isNaN(horaNum)) {
+                    if (horaNum < 10) franja = 'Antes de 10:00';
+                    else if (horaNum < 13) franja = '10:00 a 13:00';
+                    else if (horaNum < 15) franja = '13:00 a 15:00';
+                    else if (horaNum < 18) franja = '15:00 a 18:00';
+                    else franja = 'Después de 18:00';
+                }
+            }
+            if (!horaConfiable) franja = 'Sin datos';
+            return { diaSemana, diaSemanaNum, semana, año: anio, añoSemana: anioSemana, mes, añoMes: anioMes, horaNum, franja, horaConfiable };
+        }
+
+        function normalizeFecha(fechaStr) {
+            if (!fechaStr) return null;
+            fechaStr = fechaStr.trim();
+            const match1 = fechaStr.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+            if (match1) {
+                return `${match1[3]}-${match1[2].padStart(2,'0')}-${match1[1].padStart(2,'0')}`;
+            }
+            const match2 = fechaStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (match2) return `${match2[1]}-${match2[2]}-${match2[3]}`;
+            return fechaStr;
+        }
+
+        // Formatear fecha YYYY-MM-DD a DD/MM/YYYY para visualizacion
+        function formatFecha(fechaStr) {
+            if (!fechaStr) return '';
+            const parts = fechaStr.split('-');
+            if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+            return fechaStr;
+        }
+
+        function populateFilters() {
+            const profesores = [...new Set(DATA.map(d => d.profesor))].filter(p => p).sort();
+            const alumnos = [...new Set(DATA.map(d => d.alumno))].filter(a => a).sort();
+            const selProf = document.getElementById('filterProfesor');
+            selProf.innerHTML = '<option value="">Todos</option>' +
+                profesores.map(p => `<option value="${p}">${p}</option>`).join('');
+            const selAlumno = document.getElementById('filterAlumno');
+            selAlumno.innerHTML = '<option value="">Todos</option>' +
+                alumnos.map(a => `<option value="${a}">${a}</option>`).join('');
+        }
+
+        // Procesar filas CSV ya parseadas y poblar DATA/DATA_PERDIDAS
+        function processRows(rows) {
+                const headers = rows[0];
+                const colMap = {};
+                headers.forEach((h, i) => { colMap[h] = i; });
+
+                const iId = colMap['ID Sesión'] !== undefined ? colMap['ID Sesión'] : (colMap['ID Sesion'] !== undefined ? colMap['ID Sesion'] : 0);
+                const iRut = colMap['RUT Alumno'] !== undefined ? colMap['RUT Alumno'] : 1;
+                const iAlumno = colMap['Nombre Alumno'] !== undefined ? colMap['Nombre Alumno'] : 2;
+                const iContrato = colMap['ID Contrato'] !== undefined ? colMap['ID Contrato'] : 3;
+                const iPlan = colMap['Plan/Producto'] !== undefined ? colMap['Plan/Producto'] : 5;
+                const iProfesor = colMap['Profesor'] !== undefined ? colMap['Profesor'] : 6;
+                const iFecha = colMap['Fecha Sesión'] !== undefined ? colMap['Fecha Sesión'] : (colMap['Fecha Sesion'] !== undefined ? colMap['Fecha Sesion'] : 8);
+                const iHora = colMap['Hora'] !== undefined ? colMap['Hora'] : 9;
+                const iComentario = colMap['Comentario'] !== undefined ? colMap['Comentario'] : 10;
+
+                const allData = [];
+                const perdidas = [];
+                for (let i = 1; i < rows.length; i++) {
+                    const r = rows[i];
+                    if (r.length < 6) continue;
+                    const fechaRaw = (r[iFecha] || '').trim();
+                    const fecha = normalizeFecha(fechaRaw);
+                    if (!fecha || fecha.length < 8) continue;
+                    const hora = (r[iHora] || '').trim();
+                    const comentario = (r[iComentario] || '').trim();
+                    const alumno = (r[iAlumno] || '').trim();
+                    const profesor = (r[iProfesor] || '').trim();
+                    const derived = computeDerivedFields(fecha, hora, comentario);
+                    const record = {
+                        id: parseInt(r[iId]) || 0,
+                        rut: (r[iRut] || '').trim(),
+                        alumno: alumno,
+                        contrato: parseInt(r[iContrato]) || 0,
+                        plan: (r[iPlan] || '').trim(),
+                        profesor: profesor,
+                        fecha: fecha,
+                        hora: hora,
+                        comentario: comentario,
+                        horaConfiable: derived.horaConfiable,
+                        diaSemana: derived.diaSemana,
+                        diaSemanaNum: derived.diaSemanaNum,
+                        semana: derived.semana,
+                        año: derived.año,
+                        añoSemana: derived.añoSemana,
+                        mes: derived.mes,
+                        añoMes: derived.añoMes,
+                        horaNUm: derived.horaNum,
+                        franja: derived.franja
+                    };
+                    if (comentario.toUpperCase().includes('MINIMAS CONTRATO') || comentario.toUpperCase().includes('MÍNIMAS CONTRATO')) {
+                        perdidas.push({ alumno: alumno, fecha: fecha, añoMes: derived.añoMes });
+                    } else {
+                        allData.push(record);
+                    }
+                }
+                DATA = allData;
+                DATA_PERDIDAS = perdidas;
+        }
+
+        // Configurar fechas, filtros y estado inicial despues de cargar datos
+        function initAfterLoad() {
+                const fechas = DATA.map(d => d.fecha).sort();
+                FECHA_MIN = fechas[0];
+                FECHA_MAX = fechas[fechas.length - 1];
+                HOY = new Date();
+                const firstOfMonth = new Date(HOY.getFullYear(), HOY.getMonth(), 1);
+                const lastOfPrevMonth = new Date(firstOfMonth - 1);
+                FECHA_HASTA_DEFAULT = lastOfPrevMonth.toISOString().split('T')[0];
+                if (FECHA_HASTA_DEFAULT < FECHA_MIN) FECHA_HASTA_DEFAULT = FECHA_MAX;
+                document.getElementById('fechaDesde').value = FECHA_MIN;
+                document.getElementById('fechaHasta').value = FECHA_HASTA_DEFAULT;
+                document.getElementById('subtitlePeriodo').textContent = 'Período: ' + formatFecha(FECHA_MIN) + ' al ' + formatFecha(FECHA_MAX);
+                populateFilters();
+                filteredData = DATA.filter(d => d.fecha >= FECHA_MIN && d.fecha <= FECHA_HASTA_DEFAULT);
+        }
+
+        // Parsear respuesta JSON de Google Visualization API (gviz)
+        function parseGvizResponse(jsonText) {
+            // La respuesta viene como: google.visualization.Query.setResponse({...})
+            // o como: callback({...}) segun el responseHandler
+            const match = jsonText.match(/\{[\s\S]*\}/);
+            if (!match) throw new Error('Respuesta gviz invalida');
+            const data = JSON.parse(match[0]);
+            if (data.status === 'error') throw new Error(data.errors?.[0]?.message || 'Error en query');
+
+            const cols = data.table.cols;
+            const gvizRows = data.table.rows;
+
+            // Convertir a formato de filas string (como CSV parseado)
+            const headers = cols.map(c => c.label);
+            const rows = [headers];
+            gvizRows.forEach(r => {
+                const row = r.c.map((cell, i) => {
+                    if (!cell || cell.v === null || cell.v === undefined) return '';
+                    // Fechas vienen como "Date(2026,1,18)" (mes 0-indexed)
+                    if (cols[i].type === 'date' && typeof cell.v === 'string' && cell.v.startsWith('Date(')) {
+                        const parts = cell.v.match(/Date\((\d+),(\d+),(\d+)\)/);
+                        if (parts) {
+                            const y = parts[1];
+                            const m = String(parseInt(parts[2]) + 1).padStart(2, '0');
+                            const d = parts[3].padStart(2, '0');
+                            return `${d}-${m}-${y}`;
+                        }
+                    }
+                    // Datetime/timeofday
+                    if (cols[i].type === 'datetime' || cols[i].type === 'timeofday') {
+                        return cell.f || String(cell.v);
+                    }
+                    return String(cell.v);
+                });
+                rows.push(row);
+            });
+            return rows;
+        }
+
+        // Cargar via JSONP (funciona desde file:// y https://)
+        function loadDataJSONP() {
+            return new Promise((resolve, reject) => {
+                const callbackName = '_gsheetCallback_' + Date.now();
+                const JSONP_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json;responseHandler:${callbackName}`;
+
+                window[callbackName] = function(response) {
+                    try {
+                        const rows = parseGvizResponse(JSON.stringify(response));
+                        processRows(rows);
+                        resolve();
+                    } catch (e) {
+                        reject(e);
+                    } finally {
+                        delete window[callbackName];
+                        const s = document.getElementById('gsheetScript');
+                        if (s) s.remove();
+                    }
+                };
+
+                const script = document.createElement('script');
+                script.id = 'gsheetScript';
+                script.src = JSONP_URL;
+                script.onerror = function() {
+                    delete window[callbackName];
+                    script.remove();
+                    reject(new Error('No se pudo conectar a Google Sheets'));
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        // Cargar via fetch CSV (funciona desde https://)
+        function loadDataFetch() {
+            return fetch(SHEET_URL)
+                .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+                .then(csv => {
+                    const rows = parseCSV(csv);
+                    processRows(rows);
+                });
+        }
+
+        async function loadData() {
+            const loadingText = document.getElementById('loadingText');
+            try {
+                loadingText.textContent = 'Descargando datos desde Google Sheets...';
+                // Intentar fetch CSV primero (mas rapido), fallback a JSONP si falla (CORS en file://)
+                try {
+                    await loadDataFetch();
+                } catch (e) {
+                    console.log('Fetch fallo (CORS), usando JSONP...', e.message);
+                    loadingText.textContent = 'Conectando a Google Sheets...';
+                    await loadDataJSONP();
+                }
+                loadingText.textContent = 'Procesando datos...';
+                initAfterLoad();
+                loadingText.textContent = DATA.length + ' sesiones cargadas. Renderizando...';
+                console.log('Datos cargados: ' + DATA.length + ' sesiones, ' + DATA_PERDIDAS.length + ' perdidas');
+                console.log('Rango: ' + FECHA_MIN + ' a ' + FECHA_MAX);
+            } catch (error) {
+                console.error('Error cargando datos:', error);
+                loadingText.textContent = 'Error al cargar datos: ' + error.message;
+                loadingText.style.color = '#ef4444';
+                throw error;
+            }
+        }
+
+
+        // Estado de filtros - iniciar con filtro hasta fin de mes anterior
+        let filteredData = [];
+        let charts = {};
+
+        // Colores - Paleta profesional gris/azul
+        const COLORS = [
+            '#22c55e', '#10b981', '#34d399', '#6ee7b7', '#a7f3d0',
+            '#059669', '#047857', '#065f46', '#14b8a6', '#2dd4bf',
+            '#5eead4', '#99f6e4'
+        ];
+
+        const FRANJA_ORDER = ['Antes de 10:00', '10:00 a 13:00', '13:00 a 15:00', '15:00 a 18:00', 'Después de 18:00'];
+        const DIAS_ORDER = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+        // ====================================================================
+        // INICIALIZACIÓN
+        // ====================================================================
+        document.addEventListener('DOMContentLoaded', async function() {
+            // Cargar datos desde Google Sheets
+            await loadData();
+            // Ocultar loading overlay
+            document.getElementById('loadingOverlay').style.display = 'none';
+            
+            // Event listeners para filtros
+            document.getElementById('fechaDesde').addEventListener('change', aplicarFiltros);
+            document.getElementById('fechaHasta').addEventListener('change', aplicarFiltros);
+            document.getElementById('filterProfesor').addEventListener('change', aplicarFiltros);
+            document.getElementById('filterAlumno').addEventListener('change', aplicarFiltros);
+            document.getElementById('filterFranja').addEventListener('change', aplicarFiltros);
+
+            document.getElementById('sliderConsumo').addEventListener('input', function() {
+                document.getElementById('sliderValue').textContent = this.value;
+                actualizarAlertaAltoConsumo();
+            });
+
+            // Renderizar todo
+            renderAll();
+        });
+
+        // ====================================================================
+        // FILTROS
+        // ====================================================================
+        function aplicarFiltros() {
+            const fechaDesde = document.getElementById('fechaDesde').value;
+            const fechaHasta = document.getElementById('fechaHasta').value;
+            const profesor = document.getElementById('filterProfesor').value;
+            const alumno = document.getElementById('filterAlumno').value;
+            const franja = document.getElementById('filterFranja').value;
+
+            filteredData = DATA.filter(d => {
+                if (fechaDesde && d.fecha < fechaDesde) return false;
+                if (fechaHasta && d.fecha > fechaHasta) return false;
+                if (profesor && d.profesor !== profesor) return false;
+                if (alumno && d.alumno !== alumno) return false;
+                if (franja && d.franja !== franja && d.franja !== 'Sin datos') return false;
+                return true;
+            });
+
+            actualizarActiveFilters();
+            renderAll();
+        }
+
+        function limpiarFiltros() {
+            document.getElementById('fechaDesde').value = FECHA_MIN;
+            document.getElementById('fechaHasta').value = FECHA_HASTA_DEFAULT;
+            document.getElementById('filterProfesor').value = '';
+            document.getElementById('filterAlumno').value = '';
+            document.getElementById('filterFranja').value = '';
+            filteredData = DATA.filter(d => d.fecha >= FECHA_MIN && d.fecha <= FECHA_HASTA_DEFAULT);
+            actualizarActiveFilters();
+            renderAll();
+        }
+
+        function filtrarPorProfesor(profesor) {
+            document.getElementById('filterProfesor').value = profesor;
+            aplicarFiltros();
+        }
+
+        function filtrarPorAlumno(alumno) {
+            document.getElementById('filterAlumno').value = alumno;
+            aplicarFiltros();
+        }
+
+        function actualizarActiveFilters() {
+            const container = document.getElementById('activeFilters');
+            const profesor = document.getElementById('filterProfesor').value;
+            const alumno = document.getElementById('filterAlumno').value;
+
+            let html = '';
+            if (profesor) {
+                html += `<span class="inline-flex items-center gap-2 px-3 py-1.5 bg-[#22c55e]/10 border border-[#22c55e]/20 rounded-full text-xs text-[#22c55e]">Profesor: ${profesor} <span class="cursor-pointer hover:text-white transition-colors duration-200" onclick="document.getElementById('filterProfesor').value='';aplicarFiltros();">×</span></span>`;
+            }
+            if (alumno) {
+                html += `<span class="inline-flex items-center gap-2 px-3 py-1.5 bg-[#22c55e]/10 border border-[#22c55e]/20 rounded-full text-xs text-[#22c55e] ml-2">Alumno: ${alumno} <span class="cursor-pointer hover:text-white transition-colors duration-200" onclick="document.getElementById('filterAlumno').value='';aplicarFiltros();">×</span></span>`;
+            }
+            container.innerHTML = html;
+        }
+
+        // ====================================================================
+        // RENDER PRINCIPAL
+        // ====================================================================
+        function renderAll() {
+            renderKPIs();
+            renderChartProfesoresRanking();
+            renderChartProfesoresEvolucion();
+            renderTablaProfesores();
+            renderHeatmap();
+            renderChartSesionesMes();
+            renderChartTendenciaSemanal();
+            renderChartDiaSemana();
+            renderChartFranjas();
+            renderChartTopAlumnos();
+            renderChartHistograma();
+            actualizarAlertaAltoConsumo();
+            renderTablaIncumplimiento();
+            renderTablaInactivos();
+            renderSesionesPerdidas();
+            renderAlertas();
+            renderResumenEjecutivo();
+        }
+
+        // ====================================================================
+        // KPIs
+        // ====================================================================
+        function renderKPIs() {
+            const totalSesiones = filteredData.length;
+            const profesoresActivos = [...new Set(filteredData.map(d => d.profesor))].length;
+            const alumnosActivos = [...new Set(filteredData.map(d => d.alumno))].length;
+
+            // Promedio por día
+            const fechas = [...new Set(filteredData.map(d => d.fecha))];
+            const promedioDia = fechas.length > 0 ? (totalSesiones / fechas.length).toFixed(1) : 0;
+
+            // Profesor TOP
+            const sesionesPorProfesor = {};
+            filteredData.forEach(d => {
+                sesionesPorProfesor[d.profesor] = (sesionesPorProfesor[d.profesor] || 0) + 1;
+            });
+            const profesorTop = Object.entries(sesionesPorProfesor).sort((a,b) => b[1] - a[1])[0];
+
+            // Franja pico (solo hora confiable)
+            const dataConfiable = filteredData.filter(d => d.horaConfiable);
+            const sesionesPorFranja = {};
+            dataConfiable.forEach(d => {
+                if (d.franja !== 'Sin datos') {
+                    sesionesPorFranja[d.franja] = (sesionesPorFranja[d.franja] || 0) + 1;
+                }
+            });
+            const franjaPico = Object.entries(sesionesPorFranja).sort((a,b) => b[1] - a[1])[0];
+
+            document.getElementById('kpiGrid').innerHTML = `
+                <div class="group relative bg-[#141414] border border-[#1f1f1f] rounded-lg p-5 transition-all duration-200 hover:border-[#22c55e]/30 hover:shadow-lg hover:shadow-[#22c55e]/5">
+                    <div class="text-xs font-medium uppercase tracking-wider text-[#737373] mb-2">Total Sesiones</div>
+                    <div class="text-3xl font-semibold font-mono text-[#fafafa]">${totalSesiones.toLocaleString()}</div>
+                </div>
+                <div class="group relative bg-[#141414] border border-[#1f1f1f] rounded-lg p-5 transition-all duration-200 hover:border-[#22c55e]/30 hover:shadow-lg hover:shadow-[#22c55e]/5">
+                    <div class="text-xs font-medium uppercase tracking-wider text-[#737373] mb-2">Profesores Activos</div>
+                    <div class="text-3xl font-semibold font-mono text-[#fafafa]">${profesoresActivos}</div>
+                </div>
+                <div class="group relative bg-[#141414] border border-[#1f1f1f] rounded-lg p-5 transition-all duration-200 hover:border-[#22c55e]/30 hover:shadow-lg hover:shadow-[#22c55e]/5">
+                    <div class="text-xs font-medium uppercase tracking-wider text-[#737373] mb-2">Alumnos Activos</div>
+                    <div class="text-3xl font-semibold font-mono text-[#fafafa]">${alumnosActivos}</div>
+                </div>
+                <div class="group relative bg-[#141414] border border-[#1f1f1f] rounded-lg p-5 transition-all duration-200 hover:border-[#22c55e]/30 hover:shadow-lg hover:shadow-[#22c55e]/5">
+                    <div class="text-xs font-medium uppercase tracking-wider text-[#737373] mb-2">Promedio Sesiones/Día</div>
+                    <div class="text-3xl font-semibold font-mono text-[#fafafa]">${promedioDia}</div>
+                </div>
+                <div class="group relative bg-[#141414] border border-[#1f1f1f] rounded-lg p-5 transition-all duration-200 hover:border-[#22c55e]/30 hover:shadow-lg hover:shadow-[#22c55e]/5 cursor-pointer" onclick="filtrarPorProfesor('${profesorTop ? profesorTop[0] : ''}')">
+                    <div class="text-xs font-medium uppercase tracking-wider text-[#737373] mb-2">Profesor TOP</div>
+                    <div class="text-2xl font-semibold text-[#22c55e]">${profesorTop ? profesorTop[0].split(' ')[0] : '-'}</div>
+                    <div class="text-xs text-[#525252] mt-1 font-mono">${profesorTop ? profesorTop[1] + ' sesiones' : ''}</div>
+                </div>
+                <div class="group relative bg-[#141414] border border-[#1f1f1f] rounded-lg p-5 transition-all duration-200 hover:border-[#22c55e]/30 hover:shadow-lg hover:shadow-[#22c55e]/5">
+                    <div class="text-xs font-medium uppercase tracking-wider text-[#737373] mb-2">Horario Pico</div>
+                    <div class="text-xl font-semibold text-[#22c55e]">${franjaPico ? franjaPico[0] : '-'}</div>
+                    <div class="text-xs text-[#525252] mt-1 font-mono">${franjaPico ? franjaPico[1] + ' sesiones' : ''}</div>
+                </div>
+            `;
+        }
+
+        // ====================================================================
+        // GRÁFICOS DE PROFESORES
+        // ====================================================================
+        function renderChartProfesoresRanking() {
+            const sesionesPorProfesor = {};
+            filteredData.forEach(d => {
+                sesionesPorProfesor[d.profesor] = (sesionesPorProfesor[d.profesor] || 0) + 1;
+            });
+
+            const sorted = Object.entries(sesionesPorProfesor).sort((a,b) => b[1] - a[1]);
+            const labels = sorted.map(x => x[0]);
+            const values = sorted.map(x => x[1]);
+
+            if (charts.profesoresRanking) charts.profesoresRanking.destroy();
+
+            const ctx = document.getElementById('chartProfesoresRanking').getContext('2d');
+            charts.profesoresRanking = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: COLORS,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ctx.raw + ' sesiones'
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(34, 197, 94, 0.06)' },
+                            ticks: { color: '#525252' }
+                        },
+                        y: {
+                            grid: { display: false },
+                            ticks: { color: '#a3a3a3' }
+                        }
+                    },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const idx = elements[0].index;
+                            filtrarPorProfesor(labels[idx]);
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderChartProfesoresEvolucion() {
+            // Agrupar por mes y profesor
+            const dataByMonthProf = {};
+            const meses = [...new Set(filteredData.map(d => d.añoMes))].sort();
+            const profesores = [...new Set(filteredData.map(d => d.profesor))];
+
+            profesores.forEach(p => {
+                dataByMonthProf[p] = {};
+                meses.forEach(m => dataByMonthProf[p][m] = 0);
+            });
+
+            filteredData.forEach(d => {
+                dataByMonthProf[d.profesor][d.añoMes]++;
+            });
+
+            const datasets = profesores.map((p, i) => ({
+                label: p,
+                data: meses.map(m => dataByMonthProf[p][m]),
+                borderColor: COLORS[i % COLORS.length],
+                backgroundColor: COLORS[i % COLORS.length] + '33',
+                tension: 0.3,
+                fill: false
+            }));
+
+            if (charts.profesoresEvolucion) charts.profesoresEvolucion.destroy();
+
+            const ctx = document.getElementById('chartProfesoresEvolucion').getContext('2d');
+            charts.profesoresEvolucion = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: meses.map(m => {
+                        const [y, mo] = m.split('-');
+                        return new Date(y, mo-1).toLocaleDateString('es-CL', {month: 'short', year: '2-digit'});
+                    }),
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#525252', boxWidth: 12, padding: 10 }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(34, 197, 94, 0.06)' },
+                            ticks: { color: '#525252' }
+                        },
+                        y: {
+                            grid: { color: 'rgba(34, 197, 94, 0.06)' },
+                            ticks: { color: '#525252' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderTablaProfesores() {
+            const profesores = [...new Set(filteredData.map(d => d.profesor))];
+            const meses = [...new Set(filteredData.map(d => d.añoMes))].sort();
+            const ultimoMes = meses[meses.length - 1];
+            const penultimoMes = meses[meses.length - 2];
+            const semanas = [...new Set(filteredData.map(d => d.añoSemana))];
+
+            const rows = profesores.map(p => {
+                const sesiones = filteredData.filter(d => d.profesor === p);
+                const total = sesiones.length;
+                const promSemanal = (total / semanas.length).toFixed(1);
+
+                // Horario más frecuente (solo hora confiable)
+                const confiables = sesiones.filter(d => d.horaConfiable && d.franja !== 'Sin datos');
+                const franjas = {};
+                confiables.forEach(d => franjas[d.franja] = (franjas[d.franja] || 0) + 1);
+                const topFranja = Object.entries(franjas).sort((a,b) => b[1] - a[1])[0];
+
+                // Alumnos únicos
+                const alumnosUnicos = [...new Set(sesiones.map(d => d.alumno))].length;
+
+                // Tendencia
+                const sesUltimo = sesiones.filter(d => d.añoMes === ultimoMes).length;
+                const sesPenultimo = sesiones.filter(d => d.añoMes === penultimoMes).length;
+                let tendencia = '→';
+                let tendenciaClass = 'trend-stable';
+                if (sesPenultimo > 0) {
+                    const cambio = ((sesUltimo - sesPenultimo) / sesPenultimo) * 100;
+                    if (cambio > 10) { tendencia = '↑'; tendenciaClass = 'trend-up'; }
+                    else if (cambio < -10) { tendencia = '↓'; tendenciaClass = 'trend-down'; }
+                }
+
+                return {
+                    profesor: p,
+                    total: total,
+                    promSemanal: promSemanal,
+                    topFranja: topFranja ? topFranja[0] : '-',
+                    alumnosUnicos: alumnosUnicos,
+                    tendencia: tendencia,
+                    tendenciaClass: tendenciaClass
+                };
+            }).sort((a, b) => b.total - a.total);
+
+            const tbody = document.querySelector('#tablaProfesores tbody');
+            tbody.innerHTML = rows.map(r => `
+                <tr class="border-b border-[#1f1f1f] transition-colors duration-200 hover:bg-[#1a1a1a] cursor-pointer" onclick="filtrarPorProfesor('${r.profesor}')">
+                    <td class="px-4 py-3 text-sm text-[#fafafa]">${r.profesor}</td>
+                    <td class="px-4 py-3 text-sm font-mono text-[#22c55e]">${r.total}</td>
+                    <td class="px-4 py-3 text-sm font-mono text-[#a3a3a3]">${r.promSemanal}</td>
+                    <td class="px-4 py-3 text-sm text-[#a3a3a3]">${r.topFranja}</td>
+                    <td class="px-4 py-3 text-sm font-mono text-[#a3a3a3]">${r.alumnosUnicos}</td>
+                    <td class="px-4 py-3 text-sm font-mono ${r.tendenciaClass}">${r.tendencia}</td>
+                </tr>
+            `).join('');
+        }
+
+        // ====================================================================
+        // ANÁLISIS TEMPORAL
+        // ====================================================================
+        function renderHeatmap() {
+            const dataConfiable = filteredData.filter(d => d.horaConfiable);
+
+            // Matriz: hora (filas) x día (columnas)
+            const horas = [];
+            for (let h = 6; h <= 21; h++) horas.push(h);
+
+            const matriz = {};
+            horas.forEach(h => {
+                matriz[h] = {};
+                DIAS_ORDER.forEach(d => matriz[h][d] = 0);
+            });
+
+            dataConfiable.forEach(d => {
+                const h = d.horaNUm;
+                if (h >= 6 && h <= 21 && matriz[h]) {
+                    matriz[h][d.diaSemana]++;
+                }
+            });
+
+            // Encontrar max para escala de colores
+            let maxVal = 0;
+            horas.forEach(h => {
+                DIAS_ORDER.forEach(d => {
+                    if (matriz[h][d] > maxVal) maxVal = matriz[h][d];
+                });
+            });
+
+            // Generar HTML
+            let html = '<div class="heatmap">';
+
+            // Header
+            html += '<div class="heatmap-header"></div>';
+            DIAS_ORDER.forEach(d => {
+                html += `<div class="heatmap-header">${d.substring(0,3)}</div>`;
+            });
+
+            // Filas
+            horas.forEach(h => {
+                html += `<div class="heatmap-label">${h}:00</div>`;
+                DIAS_ORDER.forEach(d => {
+                    const val = matriz[h][d];
+                    const intensity = maxVal > 0 ? val / maxVal : 0;
+                    const r = Math.round(26 + intensity * (99 - 26));
+                    const g = Math.round(26 + intensity * (179 - 26));
+                    const b = Math.round(46 + intensity * (237 - 46));
+                    const bg = intensity > 0 ? `rgba(${r}, ${g}, ${b}, ${0.3 + intensity * 0.7})` : 'rgba(99, 179, 237, 0.05)';
+                    html += `<div class="heatmap-cell" style="background: ${bg};" title="${d} ${h}:00 - ${val} sesiones">${val || ''}</div>`;
+                });
+            });
+
+            html += '</div>';
+            document.getElementById('heatmapContainer').innerHTML = html;
+        }
+
+        function renderChartSesionesMes() {
+            const meses = [...new Set(filteredData.map(d => d.añoMes))].sort();
+            const counts = meses.map(m => filteredData.filter(d => d.añoMes === m).length);
+
+            if (charts.sesionesMes) charts.sesionesMes.destroy();
+
+            const ctx = document.getElementById('chartSesionesMes').getContext('2d');
+            charts.sesionesMes = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: meses.map(m => {
+                        const [y, mo] = m.split('-');
+                        return new Date(y, mo-1).toLocaleDateString('es-CL', {month: 'short', year: '2-digit'});
+                    }),
+                    datasets: [{
+                        data: counts,
+                        backgroundColor: '#63b3ed',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: 'rgba(34, 197, 94, 0.06)' }, ticks: { color: '#525252' } },
+                        y: { grid: { color: 'rgba(34, 197, 94, 0.06)' }, ticks: { color: '#525252' } }
+                    }
+                }
+            });
+        }
+
+        function renderChartTendenciaSemanal() {
+            const semanas = [...new Set(filteredData.map(d => d.añoSemana))].sort();
+            const counts = semanas.map(s => filteredData.filter(d => d.añoSemana === s).length);
+
+            // Función para obtener fecha de inicio de semana
+            function getWeekStartDate(yearWeek) {
+                const [year, week] = yearWeek.split('-W');
+                const jan1 = new Date(parseInt(year), 0, 1);
+                const days = (parseInt(week) - 1) * 7;
+                const weekStart = new Date(jan1.getTime() + days * 24 * 60 * 60 * 1000);
+                // Ajustar al lunes de esa semana
+                const dayOfWeek = weekStart.getDay();
+                const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+                weekStart.setDate(weekStart.getDate() + diff);
+                return weekStart;
+            }
+
+            const labels = semanas.map(s => {
+                const weekNum = s.split('-W')[1];
+                const startDate = getWeekStartDate(s);
+                const day = startDate.getDate();
+                const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+                const month = monthNames[startDate.getMonth()];
+                return `${day}-${month}`;
+            });
+
+            if (charts.tendenciaSemanal) charts.tendenciaSemanal.destroy();
+
+            const ctx = document.getElementById('chartTendenciaSemanal').getContext('2d');
+            charts.tendenciaSemanal = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: counts,
+                        borderColor: '#00d4aa',
+                        backgroundColor: 'rgba(0, 212, 170, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: 'rgba(74, 158, 255, 0.1)' }, ticks: { color: '#aaaaaa', maxTicksLimit: 12, maxRotation: 45, minRotation: 45 } },
+                        y: { grid: { color: 'rgba(74, 158, 255, 0.1)' }, ticks: { color: '#aaaaaa' } }
+                    }
+                }
+            });
+        }
+
+        function renderChartDiaSemana() {
+            const counts = DIAS_ORDER.map(d => filteredData.filter(x => x.diaSemana === d).length);
+
+            if (charts.diaSemana) charts.diaSemana.destroy();
+
+            const ctx = document.getElementById('chartDiaSemana').getContext('2d');
+            charts.diaSemana = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: DIAS_ORDER.map(d => d.substring(0, 3)),
+                    datasets: [{
+                        data: counts,
+                        backgroundColor: COLORS.slice(0, 7),
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#525252' } },
+                        y: { grid: { color: 'rgba(34, 197, 94, 0.06)' }, ticks: { color: '#525252' } }
+                    }
+                }
+            });
+        }
+
+        function renderChartFranjas() {
+            const dataConfiable = filteredData.filter(d => d.horaConfiable && d.franja !== 'Sin datos');
+            const counts = FRANJA_ORDER.map(f => dataConfiable.filter(d => d.franja === f).length);
+
+            if (charts.franjas) charts.franjas.destroy();
+
+            const ctx = document.getElementById('chartFranjas').getContext('2d');
+            charts.franjas = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: FRANJA_ORDER,
+                    datasets: [{
+                        data: counts,
+                        backgroundColor: ['#63b3ed', '#4fd1c5', '#f6ad55', '#fc8181', '#b794f4'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { color: '#525252', padding: 12 }
+                        }
+                    }
+                }
+            });
+        }
+
+        // ====================================================================
+        // ANÁLISIS DE ALUMNOS
+        // ====================================================================
+        function renderChartTopAlumnos() {
+            const sesionesPorAlumno = {};
+            filteredData.forEach(d => {
+                sesionesPorAlumno[d.alumno] = (sesionesPorAlumno[d.alumno] || 0) + 1;
+            });
+
+            const sorted = Object.entries(sesionesPorAlumno).sort((a,b) => b[1] - a[1]).slice(0, 20);
+            const labels = sorted.map(x => x[0]);
+            const values = sorted.map(x => x[1]);
+
+            if (charts.topAlumnos) charts.topAlumnos.destroy();
+
+            const ctx = document.getElementById('chartTopAlumnos').getContext('2d');
+            charts.topAlumnos = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: '#4fd1c5',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: 'rgba(34, 197, 94, 0.06)' }, ticks: { color: '#525252' } },
+                        y: { grid: { display: false }, ticks: { color: '#a3a3a3', font: { size: 11 } } }
+                    },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const idx = elements[0].index;
+                            filtrarPorAlumno(labels[idx]);
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderChartHistograma() {
+            // Calcular sesiones por alumno POR MES
+            const sesionesPorAlumnoMes = {};
+            filteredData.forEach(d => {
+                const key = `${d.alumno}||${d.añoMes}`;
+                sesionesPorAlumnoMes[key] = (sesionesPorAlumnoMes[key] || 0) + 1;
+            });
+
+            const valores = Object.values(sesionesPorAlumnoMes);
+
+            // Bins para sesiones mensuales
+            const bins = [
+                {label: '1-2', min: 1, max: 2},
+                {label: '3-4', min: 3, max: 4},
+                {label: '5-6', min: 5, max: 6},
+                {label: '7-8', min: 7, max: 8},
+                {label: '9-10', min: 9, max: 10},
+                {label: '11-15', min: 11, max: 15},
+                {label: '16-20', min: 16, max: 20},
+                {label: '>20', min: 21, max: 9999}
+            ];
+
+            const counts = bins.map(b => valores.filter(v => v >= b.min && v <= b.max).length);
+
+            if (charts.histograma) charts.histograma.destroy();
+
+            const ctx = document.getElementById('chartHistograma').getContext('2d');
+            charts.histograma = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: bins.map(b => b.label),
+                    datasets: [{
+                        label: 'Registros alumno-mes',
+                        data: counts,
+                        backgroundColor: '#f6ad55',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ctx.raw + ' registros alumno-mes'
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#525252' },
+                            title: { display: true, text: 'Sesiones quemadas por mes', color: '#525252' }
+                        },
+                        y: {
+                            grid: { color: 'rgba(34, 197, 94, 0.06)' },
+                            ticks: { color: '#525252' },
+                            title: { display: true, text: 'Cantidad de registros', color: '#525252' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function actualizarAlertaAltoConsumo() {
+            const umbral = parseFloat(document.getElementById('sliderConsumo').value);
+
+            // Calcular sesiones por alumno por semana
+            const semanas = [...new Set(filteredData.map(d => d.añoSemana))];
+            const alumnos = [...new Set(filteredData.map(d => d.alumno))];
+
+            const promedioSemanal = {};
+            alumnos.forEach(a => {
+                const sesiones = filteredData.filter(d => d.alumno === a).length;
+                promedioSemanal[a] = sesiones / semanas.length;
+            });
+
+            const altoConsumo = Object.entries(promedioSemanal)
+                .filter(([a, prom]) => prom >= umbral)
+                .sort((a, b) => b[1] - a[1]);
+
+            const lista = document.getElementById('listaAltoConsumo');
+            if (altoConsumo.length === 0) {
+                lista.innerHTML = '<li class="text-[#525252]">No hay alumnos con consumo >= ' + umbral + ' sesiones/semana</li>';
+            } else {
+                lista.innerHTML = altoConsumo.map(([a, prom]) => `
+                    <li class="clickable" onclick="filtrarPorAlumno('${a}')" style="cursor:pointer; break-inside: avoid;">
+                        <span>${a}</span>
+                        <span style="color: #00d4aa; font-weight: 600;">${prom.toFixed(1)} ses/sem</span>
+                    </li>
+                `).join('');
+            }
+        }
+
+        function renderTablaIncumplimiento() {
+            // Buscar semanas donde alumnos tienen menos de 2 sesiones
+            const semanas = [...new Set(filteredData.map(d => d.añoSemana))].sort().slice(-8); // Últimas 8 semanas
+            const alumnos = [...new Set(filteredData.map(d => d.alumno))];
+
+            const incumplimientos = [];
+            alumnos.forEach(a => {
+                semanas.forEach(s => {
+                    const count = filteredData.filter(d => d.alumno === a && d.añoSemana === s).length;
+                    if (count > 0 && count < 2) {
+                        incumplimientos.push({
+                            alumno: a,
+                            semana: s,
+                            sesiones: count,
+                            estado: count === 1 ? 'Riesgo' : 'OK'
+                        });
+                    }
+                });
+            });
+
+            // Ordenar por semana desc y mostrar últimos 50
+            incumplimientos.sort((a, b) => b.semana.localeCompare(a.semana));
+            const mostrar = incumplimientos.slice(0, 50);
+
+            const tbody = document.querySelector('#tablaIncumplimiento tbody');
+            tbody.innerHTML = mostrar.map(r => `
+                <tr class="clickable" onclick="filtrarPorAlumno('${r.alumno}')">
+                    <td>${r.alumno}</td>
+                    <td>${r.semana}</td>
+                    <td>${r.sesiones}</td>
+                    <td style="color: #fc8181;">⚠️ ${r.estado}</td>
+                </tr>
+            `).join('');
+        }
+
+        function renderTablaInactivos() {
+            // Encontrar última sesión por alumno
+            const ultimaSesion = {};
+            filteredData.forEach(d => {
+                if (!ultimaSesion[d.alumno] || d.fecha > ultimaSesion[d.alumno].fecha) {
+                    ultimaSesion[d.alumno] = { fecha: d.fecha, profesor: d.profesor };
+                }
+            });
+
+            // Calcular días de inactividad
+            const inactivos = [];
+            Object.entries(ultimaSesion).forEach(([alumno, info]) => {
+                const ultimaFecha = new Date(info.fecha);
+                const dias = Math.floor((HOY - ultimaFecha) / (1000 * 60 * 60 * 24));
+                if (dias > 30) {
+                    const totalSesiones = filteredData.filter(d => d.alumno === alumno).length;
+                    inactivos.push({
+                        alumno: alumno,
+                        ultimaFecha: info.fecha,
+                        dias: dias,
+                        totalSesiones: totalSesiones,
+                        profesor: info.profesor
+                    });
+                }
+            });
+
+            inactivos.sort((a, b) => b.dias - a.dias);
+
+            const tbody = document.querySelector('#tablaInactivos tbody');
+            tbody.innerHTML = inactivos.map(r => `
+                <tr class="border-b border-[#1f1f1f] transition-colors duration-200 hover:bg-[#1a1a1a] cursor-pointer" onclick="filtrarPorAlumno('${r.alumno}')">
+                    <td class="px-4 py-3 text-sm text-[#fafafa]">${r.alumno}</td>
+                    <td class="px-4 py-3 text-sm font-mono text-[#a3a3a3]">${formatFecha(r.ultimaFecha)}</td>
+                    <td class="px-4 py-3 text-sm font-mono text-red-400">${r.dias} días</td>
+                    <td class="px-4 py-3 text-sm font-mono text-[#a3a3a3]">${r.totalSesiones}</td>
+                    <td class="px-4 py-3 text-sm text-[#a3a3a3]">${r.profesor}</td>
+                </tr>
+            `).join('');
+        }
+
+        // ====================================================================
+        // SESIONES PERDIDAS
+        // ====================================================================
+        function renderSesionesPerdidas() {
+            // Agrupar por alumno
+            const porAlumno = {};
+            DATA_PERDIDAS.forEach(d => {
+                porAlumno[d.alumno] = (porAlumno[d.alumno] || 0) + 1;
+            });
+
+            const sorted = Object.entries(porAlumno).sort((a, b) => b[1] - a[1]);
+
+            if (charts.sesionesPerdidas) charts.sesionesPerdidas.destroy();
+
+            const ctx = document.getElementById('chartSesionesPerdidas').getContext('2d');
+            charts.sesionesPerdidas = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sorted.map(x => x[0]),
+                    datasets: [{
+                        data: sorted.map(x => x[1]),
+                        backgroundColor: '#ef4444',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: 'rgba(34, 197, 94, 0.06)' }, ticks: { color: '#525252' } },
+                        y: { grid: { display: false }, ticks: { color: '#a3a3a3' } }
+                    }
+                }
+            });
+
+            // Tabla
+            const ultimoMes = {};
+            DATA_PERDIDAS.forEach(d => {
+                if (!ultimoMes[d.alumno] || d.añoMes > ultimoMes[d.alumno]) {
+                    ultimoMes[d.alumno] = d.añoMes;
+                }
+            });
+
+            const tbody = document.querySelector('#tablaPerdidas tbody');
+            tbody.innerHTML = sorted.map(([alumno, count]) => `
+                <tr>
+                    <td>${alumno}</td>
+                    <td style="color: #fc8181; font-weight: 600;">${count}</td>
+                    <td>${ultimoMes[alumno]}</td>
+                </tr>
+            `).join('');
+        }
+
+        // ====================================================================
+        // ALERTAS E INTELIGENCIA
+        // ====================================================================
+        function renderAlertas() {
+            // Profesores con caída > 20%
+            const meses = [...new Set(filteredData.map(d => d.añoMes))].sort();
+            const ultimoMes = meses[meses.length - 1];
+            const penultimoMes = meses[meses.length - 2];
+            const profesores = [...new Set(filteredData.map(d => d.profesor))];
+
+            const caidas = [];
+            profesores.forEach(p => {
+                const sesUltimo = filteredData.filter(d => d.profesor === p && d.añoMes === ultimoMes).length;
+                const sesPenultimo = filteredData.filter(d => d.profesor === p && d.añoMes === penultimoMes).length;
+                if (sesPenultimo > 0) {
+                    const cambio = ((sesUltimo - sesPenultimo) / sesPenultimo) * 100;
+                    if (cambio < -20) {
+                        caidas.push({ profesor: p, cambio: cambio, anterior: sesPenultimo, actual: sesUltimo });
+                    }
+                }
+            });
+            caidas.sort((a, b) => a.cambio - b.cambio);
+
+            document.getElementById('alertaProfesoresBaja').innerHTML = caidas.length === 0
+                ? '<li class="text-[#525252]">No hay profesores con caída significativa</li>'
+                : caidas.map(c => `
+                    <li class="clickable" onclick="filtrarPorProfesor('${c.profesor}')" style="cursor:pointer;">
+                        <span>${c.profesor}</span>
+                        <span style="color: #fc8181;">${c.cambio.toFixed(0)}% (${c.anterior} → ${c.actual})</span>
+                    </li>
+                `).join('');
+
+            // Horarios con menor ocupación (solo hora confiable)
+            const dataConfiable = filteredData.filter(d => d.horaConfiable);
+            const ocupacion = {};
+            DIAS_ORDER.forEach(dia => {
+                FRANJA_ORDER.forEach(franja => {
+                    const key = `${dia} - ${franja}`;
+                    ocupacion[key] = dataConfiable.filter(d => d.diaSemana === dia && d.franja === franja).length;
+                });
+            });
+
+            const bajaOcupacion = Object.entries(ocupacion)
+                .sort((a, b) => a[1] - b[1])
+                .slice(0, 5);
+
+            document.getElementById('alertaHorariosVacios').innerHTML = bajaOcupacion.map(([slot, count]) => `
+                <li>
+                    <span>${slot}</span>
+                    <span style="color: #63b3ed;">${count} sesiones</span>
+                </li>
+            `).join('');
+
+            // Alumnos inactivos (> 30 días)
+            const ultimaSesion = {};
+            filteredData.forEach(d => {
+                if (!ultimaSesion[d.alumno] || d.fecha > ultimaSesion[d.alumno]) {
+                    ultimaSesion[d.alumno] = d.fecha;
+                }
+            });
+
+            const inactivos = Object.entries(ultimaSesion)
+                .map(([alumno, fecha]) => {
+                    const dias = Math.floor((HOY - new Date(fecha)) / (1000 * 60 * 60 * 24));
+                    return { alumno, fecha, dias };
+                })
+                .filter(x => x.dias > 30)
+                .sort((a, b) => b.dias - a.dias)
+                .slice(0, 10);
+
+            document.getElementById('alertaAlumnosInactivos').innerHTML = inactivos.length === 0
+                ? '<li class="text-[#525252]">No hay alumnos inactivos</li>'
+                : inactivos.map(x => `
+                    <li class="flex justify-between items-center py-2 px-3 rounded-md transition-colors duration-200 hover:bg-[#1a1a1a] cursor-pointer" onclick="filtrarPorAlumno('${x.alumno}')">
+                        <span class="text-sm text-[#d4d4d4]">${x.alumno}</span>
+                        <span class="text-sm font-mono text-amber-400">${x.dias} días (última: ${formatFecha(x.fecha)})</span>
+                    </li>
+                `).join('');
+        }
+
+        function renderResumenEjecutivo() {
+            const totalSesiones = filteredData.length;
+            const profesores = [...new Set(filteredData.map(d => d.profesor))];
+            const alumnos = [...new Set(filteredData.map(d => d.alumno))];
+
+            // Profesor top
+            const sesionesPorProf = {};
+            filteredData.forEach(d => sesionesPorProf[d.profesor] = (sesionesPorProf[d.profesor] || 0) + 1);
+            const profTop = Object.entries(sesionesPorProf).sort((a,b) => b[1] - a[1])[0];
+
+            // Alumno top
+            const sesionesPorAlumno = {};
+            filteredData.forEach(d => sesionesPorAlumno[d.alumno] = (sesionesPorAlumno[d.alumno] || 0) + 1);
+            const alumnoTop = Object.entries(sesionesPorAlumno).sort((a,b) => b[1] - a[1])[0];
+
+            // Día más activo
+            const sesionesPorDia = {};
+            filteredData.forEach(d => sesionesPorDia[d.diaSemana] = (sesionesPorDia[d.diaSemana] || 0) + 1);
+            const diaTop = Object.entries(sesionesPorDia).sort((a,b) => b[1] - a[1])[0];
+
+            // Franja más activa
+            const dataConfiable = filteredData.filter(d => d.horaConfiable && d.franja !== 'Sin datos');
+            const sesionesPorFranja = {};
+            dataConfiable.forEach(d => sesionesPorFranja[d.franja] = (sesionesPorFranja[d.franja] || 0) + 1);
+            const franjaTop = Object.entries(sesionesPorFranja).sort((a,b) => b[1] - a[1])[0];
+
+            // Tendencia mensual
+            const meses = [...new Set(filteredData.map(d => d.añoMes))].sort();
+            const sesUltimo = filteredData.filter(d => d.añoMes === meses[meses.length - 1]).length;
+            const sesPenultimo = filteredData.filter(d => d.añoMes === meses[meses.length - 2]).length;
+            const tendencia = sesPenultimo > 0 ? ((sesUltimo - sesPenultimo) / sesPenultimo * 100).toFixed(1) : 0;
+            const tendenciaTexto = tendencia > 0 ? `un incremento del ${tendencia}%` : tendencia < 0 ? `una disminución del ${Math.abs(tendencia)}%` : 'estabilidad';
+
+            // Sesiones perdidas
+            const totalPerdidas = DATA_PERDIDAS.length;
+            const alumnosPerdidas = [...new Set(DATA_PERDIDAS.map(d => d.alumno))].length;
+
+            const resumen = `
+                Durante el período analizado, ONNE registró <strong>${totalSesiones.toLocaleString()} sesiones de entrenamiento personal</strong>
+                impartidas por <strong>${profesores.length} profesores</strong> a <strong>${alumnos.length} alumnos activos</strong>.
+                El profesor con mayor actividad es <strong>${profTop[0]}</strong> con ${profTop[1]} sesiones,
+                mientras que el alumno más comprometido es <strong>${alumnoTop[0]}</strong> con ${alumnoTop[1]} sesiones consumidas.
+                <br><br>
+                Los días de mayor demanda son los <strong>${diaTop[0]}</strong> y la franja horaria preferida es
+                <strong>${franjaTop ? franjaTop[0] : 'N/A'}</strong>. Comparando el último mes con el anterior,
+                se observa <strong>${tendenciaTexto}</strong> en la actividad general.
+                <br><br>
+                En cuanto a las sesiones perdidas por incumplimiento del mínimo semanal, se han registrado
+                <strong>${totalPerdidas} sesiones perdidas</strong> correspondientes a <strong>${alumnosPerdidas} alumnos</strong>.
+                Se recomienda contactar a estos alumnos para incentivar su regularidad y evitar futuras pérdidas.
+            `;
+
+            document.getElementById('resumenEjecutivo').innerHTML = resumen;
+        }
+
+        // ====================================================================
+        // UTILIDADES
+        // ====================================================================
+        function sortTable(tableId, columnIndex) {
+            const table = document.getElementById(tableId);
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            const currentSort = table.dataset.sortColumn === String(columnIndex) && table.dataset.sortDir === 'asc' ? 'desc' : 'asc';
+            table.dataset.sortColumn = columnIndex;
+            table.dataset.sortDir = currentSort;
+
+            rows.sort((a, b) => {
+                let aVal = a.cells[columnIndex].textContent.trim();
+                let bVal = b.cells[columnIndex].textContent.trim();
+
+                // Intentar parsear como número
+                const aNum = parseFloat(aVal.replace(/[^0-9.-]/g, ''));
+                const bNum = parseFloat(bVal.replace(/[^0-9.-]/g, ''));
+
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                    return currentSort === 'asc' ? aNum - bNum : bNum - aNum;
+                }
+
+                return currentSort === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+            });
+
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+    </script>
+</body>
+</html>
