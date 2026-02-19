@@ -75,6 +75,8 @@
         .filter-active .remove:hover { color: #fafafa; }
 
         .btn { padding: 10px 18px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 200ms; border: 1px solid #262626; font-family: 'Inter', sans-serif; }
+        .btn-primary { background: #22c55e; color: #0a0a0a; border-color: #22c55e; font-weight: 600; }
+        .btn-primary:hover { background: #16a34a; border-color: #16a34a; }
         .btn-secondary { background: #0a0a0a; color: #737373; }
         .btn-secondary:hover { border-color: rgba(239, 68, 68, 0.3); color: #ef4444; }
 
@@ -291,6 +293,9 @@
                         <option value="Después de 18:00">Después de 18:00</option>
                     </select>
                 </div>
+                <button class="btn btn-primary" onclick="aplicarFiltros()">
+                    <i class="fas fa-search"></i> Aplicar Fechas
+                </button>
                 <button class="btn btn-secondary" onclick="limpiarFiltros()">
                     <i class="fas fa-times"></i> Limpiar Filtros
                 </button>
@@ -508,7 +513,9 @@
         // DATOS - Carga dinamica desde Google Sheets
         // ====================================================================
         const SHEET_ID = '19Q9RE1w9DtOTgeI8fawk8wmNXI6e7WxzCe1jNGq-odU';
-        const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`;
+        const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`;
+        const SHEET_URL = SHEET_CSV_URL;
+        const CORS_PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(SHEET_CSV_URL)}`;
 
         let DATA = [];
         let DATA_PERDIDAS = [];
@@ -769,10 +776,20 @@
             });
         }
 
-        // Cargar via fetch CSV (funciona desde https://)
+        // Cargar via fetch CSV directo (funciona desde https://)
         function loadDataFetch() {
-            return fetch(SHEET_URL)
+            return fetch(SHEET_CSV_URL)
                 .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+                .then(csv => {
+                    const rows = parseCSV(csv);
+                    processRows(rows);
+                });
+        }
+
+        // Cargar via CORS proxy (funciona desde file:// y https://)
+        function loadDataProxy() {
+            return fetch(CORS_PROXY_URL)
+                .then(r => { if (!r.ok) throw new Error('Proxy HTTP ' + r.status); return r.text(); })
                 .then(csv => {
                     const rows = parseCSV(csv);
                     processRows(rows);
@@ -783,13 +800,24 @@
             const loadingText = document.getElementById('loadingText');
             try {
                 loadingText.textContent = 'Descargando datos desde Google Sheets...';
-                // Intentar fetch CSV primero (mas rapido), fallback a JSONP si falla (CORS en file://)
+                // 1. Intentar fetch CSV directo (funciona desde https://)
                 try {
                     await loadDataFetch();
+                    console.log('Datos cargados via fetch directo');
                 } catch (e) {
-                    console.log('Fetch fallo (CORS), usando JSONP...', e.message);
-                    loadingText.textContent = 'Conectando a Google Sheets...';
-                    await loadDataJSONP();
+                    console.log('Fetch directo fallo:', e.message);
+                    // 2. Intentar via CORS proxy (funciona desde file://)
+                    try {
+                        loadingText.textContent = 'Usando proxy CORS...';
+                        await loadDataProxy();
+                        console.log('Datos cargados via CORS proxy');
+                    } catch (e2) {
+                        console.log('CORS proxy fallo:', e2.message);
+                        // 3. Ultimo recurso: JSONP (puede tener limite de filas)
+                        loadingText.textContent = 'Conectando a Google Sheets (JSONP)...';
+                        await loadDataJSONP();
+                        console.log('Datos cargados via JSONP (puede estar limitado)');
+                    }
                 }
                 loadingText.textContent = 'Procesando datos...';
                 initAfterLoad();
@@ -828,9 +856,7 @@
             // Ocultar loading overlay
             document.getElementById('loadingOverlay').style.display = 'none';
             
-            // Event listeners para filtros
-            document.getElementById('fechaDesde').addEventListener('change', aplicarFiltros);
-            document.getElementById('fechaHasta').addEventListener('change', aplicarFiltros);
+            // Event listeners para filtros (profesor, alumno, franja son dinamicos)
             document.getElementById('filterProfesor').addEventListener('change', aplicarFiltros);
             document.getElementById('filterAlumno').addEventListener('change', aplicarFiltros);
             document.getElementById('filterFranja').addEventListener('change', aplicarFiltros);
@@ -862,6 +888,10 @@
                 if (franja && d.franja !== franja && d.franja !== 'Sin datos') return false;
                 return true;
             });
+
+            const desde = fechaDesde || FECHA_MIN;
+            const hasta = fechaHasta || FECHA_MAX;
+            document.getElementById('subtitlePeriodo').textContent = 'Período: ' + formatFecha(desde) + ' al ' + formatFecha(hasta) + ' (' + filteredData.length + ' sesiones)';
 
             actualizarActiveFilters();
             renderAll();
