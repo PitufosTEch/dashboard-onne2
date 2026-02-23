@@ -690,6 +690,8 @@
 
         // Configurar fechas, filtros y estado inicial despues de cargar datos
         function initAfterLoad() {
+                const FECHA_CORTE = '2025-07-01';
+                DATA = DATA.filter(d => d.fecha >= FECHA_CORTE);
                 const fechas = DATA.map(d => d.fecha).sort();
                 FECHA_MIN = fechas[0];
                 FECHA_MAX = fechas[fechas.length - 1];
